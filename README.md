@@ -5,8 +5,8 @@ Tools for test/backup/restore imap accounts
 
 `Note` Tested on Python 3
 
-Examples
---------
+Usage
+-----
 
     $ python3 imaptools.py --help
     usage: imaptools.py [-h] [-P PORT] [--ssl] [-u EMAIL] [-p PASSWORD] server
