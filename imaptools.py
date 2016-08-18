@@ -33,25 +33,29 @@ class IMAPTool(object):
             port = imaplib.IMAP4_PORT if not ssl else imaplib.IMAP4_SSL_PORT
         # Creating server connection
         self.server = IMAP(server, port)
-    
+
     def login(self, email, password):
         self.server.login(email, password)
-    
+
     def logout(self):
         self.server.logout()
-    
+
     def close(self):
         self.server.close()
-    
+
     def get_folders(self):
         folders = []
-        foldptn = re.compile('\([^\)]*\) "[^"]*" "([^"]*)"')
-        
+        foldptn = re.compile(r'\((?P<flags>.*?)\) "(?P<delimiter>.*)" (?P<name>.*)')
+
         for fold_desc in self.server.list()[1]:
-            folder = foldptn.sub(r'\1', fold_desc.decode('iso-8859-1'))
+            flags, delimiter, folder = foldptn.match(fold_desc.decode('iso-8859-1')).groups()
+            if folder.startswith('"'):
+                folder = folder[1:]
+            if folder.endswith('"'):
+                folder = folder[:-1]
             folders.append(folder)
         return folders
-    
+
     def backup_folder(self, folder):
         print('Backup:', folder)
         folder_name = '"%s"' % folder
@@ -60,7 +64,7 @@ class IMAPTool(object):
             raise IMAP4.error(info)
 
         filename = folder.replace('/', '.') + '.mbox'
-        
+
         mbox = open(filename, 'w')
         resp, items = self.server.search(None, "ALL")
         numbers = items[0].split()
@@ -70,13 +74,13 @@ class IMAPTool(object):
             message = email.message_from_string(text)
             mbox.write(message.as_string(unixfrom=True))
         mbox.close()
-    
+
     def backup(self):
         """Create a backup of all folders of logged user account"""
         folders = self.get_folders()
         for folder in folders:
             self.backup_folder(folder)
-    
+
     def restore_mbox(self, path, folder=None):
         filename = path.split('/')[-1]
         if folder is None:
@@ -85,16 +89,16 @@ class IMAPTool(object):
                 folder = filename
             else:
                 folder = '.'.join(parts[:-1])
-        
+
         self.server.create(folder)
         self.server.select(folder)
-        
+
         mbox = mailbox.mbox(path)
         #message_set.lock() # Be careful with exceptions
-        
+
         for message in mbox:
             self.server.append(folder, None, None, str(message).encode('utf-8'))
-        
+
         #message_set.unlock()
         mbox.close()
 
@@ -102,7 +106,7 @@ class IMAPTool(object):
 
 if __name__ == '__main__':
     from getpass import getpass
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('server', help="mail server name")
     parser.add_argument('-P', '--port', type=int, help="mail server port")
@@ -110,35 +114,36 @@ if __name__ == '__main__':
     parser.add_argument('email', help="username or email")
     parser.add_argument('-p', '--password', dest='password', help="password")
     subparsers = parser.add_subparsers(dest='action', help='action-command help')
-    
+
     # create the parser for the "test" command
     parser_test = subparsers.add_parser('test', help='test help')
     parser_test.add_argument('action', type=str, choices=('connection', 'account'))
-    
+
     # create the parser for the "list" command
     parser_list = subparsers.add_parser('list', help='list help')
-    
+
     # create the parser for the "backup" command
     parser_backup = subparsers.add_parser('backup', help='backup help')
     parser_backup.add_argument('folders', metavar='folder', type=str, nargs='*')
-    
+
     # create the parser for the "restore" command
     parser_restore = subparsers.add_parser('restore', help='restore help')
     parser_restore.add_argument('mboxes', metavar='mbox', type=str, nargs='+')
-    
+
     args = vars(parser.parse_args())
-    
+
     # Checking if password option is present
     if args['password'] is None:
         args['password'] = getpass()
-    
+
     tool = IMAPTool(args['server'], args['port'], args['ssl'])
     tool.login(args['email'], args['password'])
-    
+
     if args['action'] == 'test':
         pass
     elif args['action'] == 'list':
-        print(tool.get_folders())
+        for folder in tool.get_folders():
+            print(folder)
     elif args['action'] == 'backup':
         # Getting the folder list
         folders = args['folders']
@@ -154,6 +159,6 @@ if __name__ == '__main__':
         for mbox in mboxes:
             print('Restoring:', mbox)
             tool.restore_mbox(mbox)
-    
+
     tool.logout()
     #tool.close()
